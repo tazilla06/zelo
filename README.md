@@ -3,7 +3,7 @@
 Aplicação web com banco de dados NoSQL documental (**MongoDB**) para síndicos e administradoras controlarem os equipamentos do condomínio, os laudos obrigatórios e o histórico de manutenções.
 
 > Trabalho da disciplina de Banco de Dados NoSQL.
-> **Integrantes:** _preencher_
+> **Integrantes:** Gabriel e Tarsila
 
 ---
 
