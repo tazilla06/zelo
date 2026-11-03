@@ -109,13 +109,14 @@ Mesma coleção `equipamentos`, campos diferentes:
 
 ```
 zelo/
-├── README.md                  ← descrição do sistema e modelo de dados
-└── scripts/
-    ├── 01_criar_banco.js      ← cria o banco, as coleções (com validação), os índices e os documentos de exemplo
-    └── 02_consultas.js        ← consultas de exemplo: filtros, alertas de vencimento, agregações e update
+├── README.md          ← descrição do sistema e modelo de dados
+├── requirements.txt   ← dependência: pymongo
+├── conexao.py         ← conexão com o MongoDB Atlas (lê a string de conexão, sem senha no código)
+├── criar_banco.py     ← cria o banco, as coleções (com validação), os índices e os documentos de exemplo
+└── consultas.py       ← consultas de exemplo: filtros, alertas de vencimento, agregações, update e validação
 ```
 
-O script `01_criar_banco.js` insere dados fictícios: **2 condomínios, 3 prestadores, 9 equipamentos de 6 tipos e 5 laudos**. As datas são calculadas a partir do dia da execução, então sempre há itens vencidos e vencendo para demonstrar os alertas.
+Os scripts são em **Python** com a biblioteca **pymongo**. O `criar_banco.py` insere dados fictícios: **2 condomínios, 3 prestadores, 9 equipamentos de 6 tipos e 5 laudos**. As datas são calculadas a partir do dia da execução, então sempre há itens vencidos e vencendo para demonstrar os alertas.
 
 ---
 
@@ -124,22 +125,31 @@ O script `01_criar_banco.js` insere dados fictícios: **2 condomínios, 3 presta
 1. Crie uma conta gratuita em <https://www.mongodb.com/cloud/atlas> e crie um **cluster gratuito (M0)**.
 2. Em **Database Access**, crie um usuário e uma senha para o banco.
 3. Em **Network Access**, libere o seu IP (para o trabalho, pode liberar `0.0.0.0/0`).
-4. No cluster, clique em **Connect → Shell** e copie a string de conexão (`mongodb+srv://...`).
-5. Instale o [mongosh](https://www.mongodb.com/try/download/shell) e rode, na pasta do repositório:
+4. No cluster, clique em **Connect → Drivers → Python** e copie a string de conexão (`mongodb+srv://usuario:<password>@...`), trocando `<password>` pela senha do usuário.
+5. Instale o [Python](https://www.python.org/downloads/) e, na pasta do repositório, rode:
 
    ```bash
-   mongosh "mongodb+srv://<seu-cluster>.mongodb.net/" --username <usuario> --file scripts/01_criar_banco.js
-   mongosh "mongodb+srv://<seu-cluster>.mongodb.net/" --username <usuario> --file scripts/02_consultas.js
+   pip install -r requirements.txt
+   python criar_banco.py
+   python consultas.py
    ```
 
-   **Alternativa sem instalar o mongosh:** abra o [MongoDB Compass](https://www.mongodb.com/products/tools/compass), conecte com a mesma string, abra a aba **Mongosh** (parte de baixo da tela) e cole o conteúdo de cada script.
+   Os scripts pedem a string de conexão ao rodar. Para não precisar colar toda vez, defina a variável de ambiente `MONGODB_URI`:
 
-6. Confira o resultado no Atlas, em **Browse Collections** (ou **Data Explorer**). O banco `zelo` deve aparecer com as 4 coleções.
+   ```bash
+   # Windows (PowerShell)
+   $env:MONGODB_URI = "mongodb+srv://usuario:senha@cluster0.xxxxx.mongodb.net/"
+   # Linux / macOS
+   export MONGODB_URI="mongodb+srv://usuario:senha@cluster0.xxxxx.mongodb.net/"
+   ```
 
-> O `01_criar_banco.js` apaga e recria **somente** o banco `zelo`, então pode ser executado várias vezes.
-> O `02_consultas.js` termina registrando uma manutenção nova (exemplo de `$push`); rodar de novo adiciona outra.
+6. Confira o resultado no Atlas, em **Data Explorer**. O banco `zelo` deve aparecer com as 4 coleções.
 
-### Consultas incluídas em `02_consultas.js`
+> **Nunca coloque a senha no código nem no GitHub.** Por isso a conexão fica na variável `MONGODB_URI`.
+> O `criar_banco.py` apaga e recria **somente** o banco `zelo`, então pode ser executado várias vezes.
+> O `consultas.py` registra uma manutenção nova (exemplo de `$push`); rodar de novo adiciona outra.
+
+### Consultas incluídas em `consultas.py`
 
 1. Elevadores de um condomínio (filtro por tipo)
 2. Extintores com recarga vencida ou vencendo, usando um campo que só existe nesse tipo
@@ -147,3 +157,4 @@ O script `01_criar_banco.js` insere dados fictícios: **2 condomínios, 3 presta
 4. Custo total de manutenção por equipamento (`$unwind` + `$group` no array embutido)
 5. Custo por condomínio e tipo de equipamento
 6. Registro de uma nova manutenção (`$push`) e atualização de status (`$set`)
+7. Tentativa de inserir um extintor sem `classe`, recusada pela validação do banco
