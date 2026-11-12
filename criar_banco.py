@@ -116,6 +116,56 @@ VALIDACAO = {
             "arquivo_url": {"bsonType": "string"},
         },
     },
+    # ----- Enquetes de compras -----
+    "moradores": {
+        "bsonType": "object",
+        "required": ["condominio_id", "nome", "bloco", "unidade", "codigo_acesso"],
+        "properties": {
+            "condominio_id": {"bsonType": "objectId"},
+            "nome": {"bsonType": "string"},
+            "bloco": {"bsonType": "string"},
+            "unidade": {"bsonType": "string"},
+            "codigo_acesso": {"bsonType": "string", "minLength": 4},
+            "perfil": {"enum": ["proprietario", "inquilino"]},
+        },
+    },
+    "enquetes": {
+        "bsonType": "object",
+        "required": ["condominio_id", "titulo", "opcoes", "abertura", "encerramento"],
+        "properties": {
+            "condominio_id": {"bsonType": "objectId"},
+            "titulo": {"bsonType": "string"},
+            "descricao": {"bsonType": "string"},
+            "opcoes": {
+                "bsonType": "array",
+                "minItems": 2,
+                "items": {
+                    "bsonType": "object",
+                    "required": ["codigo", "descricao"],
+                    "properties": {
+                        "codigo": {"bsonType": "string"},
+                        "descricao": {"bsonType": "string"},
+                        "valor_estimado": {"bsonType": ["double", "int", "long"], "minimum": 0},
+                    },
+                },
+            },
+            "abertura": {"bsonType": "date"},
+            "encerramento": {"bsonType": "date"},
+        },
+    },
+    "votos": {
+        "bsonType": "object",
+        "required": ["enquete_id", "morador_id", "condominio_id", "bloco", "unidade", "opcao", "data"],
+        "properties": {
+            "enquete_id": {"bsonType": "objectId"},
+            "morador_id": {"bsonType": "objectId"},
+            "condominio_id": {"bsonType": "objectId"},
+            "bloco": {"bsonType": "string"},
+            "unidade": {"bsonType": "string"},
+            "opcao": {"bsonType": "string"},
+            "data": {"bsonType": "date"},
+        },
+    },
 }
 
 # ---------------------------------------------------------------------
@@ -132,6 +182,11 @@ INDICES = {
         ([("validade", ASCENDING)], {}),
         ([("condominio_id", ASCENDING), ("tipo", ASCENDING)], {}),
     ],
+    "moradores": [([("codigo_acesso", ASCENDING)], {"unique": True})],
+    "enquetes": [([("condominio_id", ASCENDING), ("encerramento", ASCENDING)], {})],
+    # Índice ÚNICO: garante 1 voto por apartamento em cada enquete.
+    # Se o mesmo apartamento tentar votar de novo, o próprio MongoDB recusa.
+    "votos": [([("enquete_id", ASCENDING), ("bloco", ASCENDING), ("unidade", ASCENDING)], {"unique": True})],
 }
 
 
@@ -291,11 +346,88 @@ def documentos_exemplo():
          "emissor": "Laboratório AquaTeste", "data_emissao": dias(-165), "validade": dias(15)},
     ]
 
+    # ----- Moradores (1 por apartamento) -----
+    # O código de acesso é entregue pelo síndico a cada apartamento e é usado para votar.
+    nomes = ["Ana Ribeiro", "Bruno Costa", "Carla Nunes", "Diego Alves", "Elisa Rocha", "Fábio Lima",
+             "Gabriela Melo", "Henrique Dias", "Isabela Torres", "João Pires", "Karina Lopes", "Lucas Freitas",
+             "Mariana Gomes", "Nicolas Prado", "Olívia Santos", "Paulo Teixeira", "Rafaela Cunha",
+             "Sérgio Martins", "Tatiane Barros", "Vítor Araújo", "Yasmin Moura", "Wagner Reis"]
+    unidades_acacias = [(b, f"{andar}0{apto}") for b in ("A", "B") for andar in (1, 2) for apto in (1, 2, 3, 4)]
+    unidades_monte_azul = [("Único", f"{andar}{apto}") for andar in (1, 2, 3) for apto in (1, 2)]
+
+    moradores = []
+    for i, (bloco, unidade) in enumerate(unidades_acacias):
+        moradores.append({"_id": ObjectId(), "condominio_id": acacias, "nome": nomes[i],
+                          "bloco": bloco, "unidade": unidade, "codigo_acesso": f"ACA-{bloco}{unidade}",
+                          "perfil": "inquilino" if i % 4 == 3 else "proprietario"})
+    for i, (bloco, unidade) in enumerate(unidades_monte_azul):
+        moradores.append({"_id": ObjectId(), "condominio_id": monte_azul, "nome": nomes[16 + i],
+                          "bloco": bloco, "unidade": unidade, "codigo_acesso": f"MAZ-{unidade}",
+                          "perfil": "proprietario"})
+
+    # ----- Enquetes de compras -----
+    enq_lazer, enq_cameras, enq_interfone = ObjectId(), ObjectId(), ObjectId()
+    enquetes = [
+        {
+            "_id": enq_lazer, "condominio_id": acacias,
+            "titulo": "O que comprar para a área de lazer?",
+            "descricao": "Temos R$ 7.000 no fundo de melhorias. Escolha uma opção (1 voto por apartamento).",
+            "opcoes": [
+                {"codigo": "A", "descricao": "Churrasqueira elétrica nova", "valor_estimado": 4500},
+                {"codigo": "B", "descricao": "Esteira para a academia", "valor_estimado": 6800},
+                {"codigo": "C", "descricao": "Brinquedos novos para o playground", "valor_estimado": 3200},
+                {"codigo": "D", "descricao": "Não comprar agora e manter no fundo de reserva", "valor_estimado": 0},
+            ],
+            "abertura": dias(-5), "encerramento": dias(10), "criada_por": "Síndica Marina Souza",
+        },
+        {
+            "_id": enq_cameras, "condominio_id": acacias,
+            "titulo": "Instalar câmeras na garagem?",
+            "descricao": "Orçamento aprovado em assembleia, falta a decisão dos moradores.",
+            "opcoes": [
+                {"codigo": "A", "descricao": "Sim, 8 câmeras com gravação em nuvem", "valor_estimado": 5200},
+                {"codigo": "B", "descricao": "Não, manter como está", "valor_estimado": 0},
+            ],
+            "abertura": dias(-60), "encerramento": dias(-30), "criada_por": "Síndica Marina Souza",
+        },
+        {
+            "_id": enq_interfone, "condominio_id": monte_azul,
+            "titulo": "Troca do interfone",
+            "descricao": "O interfone atual será substituído. Qual modelo você prefere?",
+            "opcoes": [
+                {"codigo": "A", "descricao": "Interfone por aplicativo no celular", "valor_estimado": 3900},
+                {"codigo": "B", "descricao": "Interfone tradicional novo", "valor_estimado": 2600},
+            ],
+            "abertura": dias(-3), "encerramento": dias(12), "criada_por": "Síndico Carlos Lima",
+        },
+    ]
+
+    # ----- Votos já registrados -----
+    def votos_de(enquete_id, condominio_id, escolhas, dia_do_voto):
+        lista = [m for m in moradores if m["condominio_id"] == condominio_id]
+        return [
+            {"enquete_id": enquete_id, "morador_id": m["_id"], "condominio_id": condominio_id,
+             "bloco": m["bloco"], "unidade": m["unidade"], "opcao": opcao, "data": dias(dia_do_voto)}
+            for m, opcao in zip(lista, escolhas)
+        ]
+
+    votos = (
+        # Área de lazer: 11 dos 16 apartamentos já votaram (enquete aberta)
+        votos_de(enq_lazer, acacias, list("AABACBADBCA"), -2)
+        # Câmeras: 13 dos 16 votaram (enquete encerrada)
+        + votos_de(enq_cameras, acacias, list("AABAAABABAAAB"), -45)
+        # Interfone: 4 dos 6 votaram (enquete aberta)
+        + votos_de(enq_interfone, monte_azul, list("AABA"), -1)
+    )
+
     return {
         "condominios": condominios,
         "prestadores": prestadores,
         "equipamentos": equipamentos,
         "laudos": laudos,
+        "moradores": moradores,
+        "enquetes": enquetes,
+        "votos": votos,
     }
 
 
