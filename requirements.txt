@@ -1,1 +1,5 @@
 pymongo>=4.6
+fastapi>=0.110
+uvicorn>=0.29
+streamlit>=1.46
+requests>=2.31
