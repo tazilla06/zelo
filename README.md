@@ -1,246 +1,250 @@
-# Zelo — Inventário e Manutenção Predial para Condomínios
+# Zelo
 
-Aplicação web com banco de dados NoSQL documental (**MongoDB**) para síndicos e administradoras controlarem os equipamentos do condomínio, os laudos obrigatórios e o histórico de manutenções, e para os moradores votarem em enquetes sobre compras do condomínio.
+Trabalho da disciplina de Banco de Dados NoSQL.
+Integrantes: Gabriel e Tarsila
 
-> Trabalho da disciplina de Banco de Dados NoSQL.
-> **Integrantes:** Gabriel e Tarsila
-
----
+O Zelo é um sistema para ajudar o síndico a cuidar da manutenção do prédio. Ele guarda os equipamentos do condomínio (extintor, elevador, bomba d'água, portão, gerador, caixa d'água), o histórico de manutenção de cada um e os laudos que têm data de validade, como o AVCB dos bombeiros. Também tem uma enquete para os moradores votarem no que o condomínio vai comprar.
 
 ## 1. Descrição do sistema
 
 ### O problema
-Síndicos precisam controlar dezenas de equipamentos (extintores, elevadores, bombas, portões, geradores, caixas d'água) e laudos com prazo de validade (AVCB, para-raios/SPDA, inspeção de elevador, potabilidade da água). Na prática esse controle fica em **planilhas soltas**, papéis e e-mails das empresas de manutenção. Com isso:
 
-- recargas de extintor e laudos **vencem sem ninguém perceber**, o que gera multa e risco à segurança;
-- o histórico de manutenção de um equipamento se perde quando troca o síndico ou a empresa;
-- não há como saber **quanto se gasta** com cada equipamento.
+A ideia veio de ver como funciona em condomínio pequeno: o síndico controla tudo numa planilha, ou nem isso, e só descobre que o extintor venceu quando aparece a vistoria. Cada equipamento tem um prazo diferente (recarga de extintor é anual, elevador tem manutenção todo mês, caixa d'água é limpa a cada 6 meses) e quando troca o síndico o histórico costuma se perder. Também é difícil saber quanto o prédio gasta com manutenção e com qual empresa.
 
-### A solução
-O **Zelo** centraliza o inventário do condomínio em um só lugar:
+### O que o sistema faz
 
-| Funcionalidade | O que faz |
-|---|---|
-| Cadastro de equipamentos | Cada tipo com seus próprios atributos (classe do extintor, ART do elevador, potência da bomba...) |
-| Histórico de manutenções | Registro de preventivas, corretivas, recargas e limpezas, com custo e prestador |
-| Controle de laudos | AVCB, SPDA, inspeção de elevador etc., com data de emissão e validade |
-| Alertas de vencimento | Lista do que está vencido ou vence nos próximos 30 dias |
-| Relatórios de custo | Gasto por mês, por prestador, por tipo de serviço e por equipamento |
-| Enquetes de compras | O síndico cria a enquete, cada apartamento vota uma vez e todos acompanham o resultado |
+- cadastro dos equipamentos, cada tipo com os seus campos
+- histórico das manutenções de cada equipamento, com custo e empresa
+- controle dos laudos e das datas de validade
+- painel com o que está vencido ou vai vencer (funcionalidade 1)
+- relatório de quanto foi gasto com manutenção (funcionalidade 2)
+- enquete de compras: o síndico cria, cada apartamento vota uma vez e todo mundo vê o resultado
 
-**Usuários:** síndicos, administradoras de condomínio, zeladores e moradores.
+### Por que MongoDB
 
-### Por que um banco NoSQL documental?
-1. **Cada equipamento tem atributos diferentes.** O extintor tem `classe`, `carga_kg` e `validade_recarga`; o elevador tem `art`, `capacidade_pessoas` e empresa responsável; a bomba tem `potencia_cv` e `vazao_m3h`. Em um banco relacional seria preciso uma tabela por tipo ou uma tabela com dezenas de colunas quase sempre vazias. No MongoDB todos ficam na mesma coleção `equipamentos`, cada documento com os seus campos.
-2. **Novos tipos sem alterar o schema.** Se o condomínio passar a controlar câmeras ou painéis solares, basta inserir documentos com `tipo: "outro"` e os campos necessários. Não precisa de `ALTER TABLE`.
-3. **O histórico faz parte do equipamento.** As manutenções ficam **embutidas** em um array dentro do documento do equipamento. Abrir a ficha do elevador traz todo o histórico em uma única leitura, sem JOIN.
-4. **Flexível, mas com regras.** A coleção usa validação `$jsonSchema`: exige os campos comuns, exige `classe` e `validade_recarga` em extintores e `art` em elevadores, e aceita campos extras nos demais tipos.
+O principal motivo é que os equipamentos são muito diferentes entre si. Um extintor tem classe, carga e validade da recarga. Um elevador tem ART, capacidade e número de paradas. Uma bomba tem potência e vazão. Num banco relacional a gente teria que fazer uma tabela para cada tipo ou uma tabela enorme com várias colunas vazias. No MongoDB todos ficam na coleção `equipamentos` e cada documento tem só os campos que fazem sentido para ele.
 
----
+O segundo motivo é o histórico de manutenção. Ele é sempre lido junto com o equipamento, então faz sentido guardar dentro do próprio documento, num array.
 
-## 2. Modelo de dados
+Mesmo sendo flexível, a gente colocou regras de validação com `$jsonSchema`: todo equipamento precisa ter tipo, local e status, extintor precisa ter classe e validade da recarga, e elevador precisa ter ART. Se faltar alguma coisa o banco não deixa inserir.
 
-Banco: **`zelo`**, com 7 coleções.
+## 2. Modelagem
 
+O banco se chama `zelo` e tem 7 coleções.
+
+```mermaid
+erDiagram
+    condominios ||--o{ equipamentos : "tem"
+    condominios ||--o{ laudos : "tem"
+    condominios ||--o{ moradores : "tem"
+    condominios ||--o{ enquetes : "tem"
+    prestadores ||--o{ equipamentos : "faz manutenção"
+    equipamentos |o--o{ laudos : "pode ter"
+    enquetes ||--o{ votos : "recebe"
+    moradores ||--o{ votos : "faz"
+
+    condominios {
+        ObjectId _id
+        string nome
+        string cnpj
+        object endereco
+        object sindico
+        array blocos
+    }
+    equipamentos {
+        ObjectId _id
+        ObjectId condominio_id
+        string tipo
+        string identificacao
+        string local
+        string status
+        date proxima_manutencao
+        array manutencoes "histórico embutido"
+    }
+    prestadores {
+        ObjectId _id
+        string nome
+        string cnpj
+        array servicos
+    }
+    laudos {
+        ObjectId _id
+        ObjectId condominio_id
+        ObjectId equipamento_id "opcional"
+        string tipo
+        string numero
+        date validade
+    }
+    moradores {
+        ObjectId _id
+        ObjectId condominio_id
+        string bloco
+        string unidade
+        string codigo_acesso
+    }
+    enquetes {
+        ObjectId _id
+        ObjectId condominio_id
+        string titulo
+        array opcoes "embutidas"
+        date abertura
+        date encerramento
+    }
+    votos {
+        ObjectId _id
+        ObjectId enquete_id
+        ObjectId morador_id
+        string bloco
+        string unidade
+        string opcao
+        date data
+    }
 ```
- condominios  1 ──── N  equipamentos  (manutencoes[] embutidas)
-      │                     │      └── manutencoes[].prestador_id ──► prestadores
-      ├──── 1 ──── N  laudos ┘ (equipamento_id opcional)
-      │
-      ├──── 1 ──── N  moradores ───────────┐
-      └──── 1 ──── N  enquetes (opcoes[] embutidas)
-                          └──── 1 ──── N  votos (1 por apartamento) ◄┘
-```
 
-| Coleção | Conteúdo | Relacionamentos |
+Os equipamentos ainda têm os campos de cada tipo (`classe`, `art`, `potencia_cv`...), que não aparecem no diagrama porque mudam de um documento para outro.
+
+### O que ficou embutido e o que ficou separado
+
+| O quê | Onde | Por quê |
 |---|---|---|
-| `condominios` | Nome, CNPJ, endereço e síndico (embutidos), blocos | — |
-| `prestadores` | Empresas de manutenção e os serviços que prestam | — |
-| `equipamentos` | Inventário com campos variáveis por tipo e **histórico de manutenções embutido** | `condominio_id` → condominios; `manutencoes[].prestador_id` → prestadores |
-| `laudos` | Laudos e certificados com validade | `condominio_id` → condominios; `equipamento_id` (opcional) → equipamentos |
-| `moradores` | Um morador por apartamento, com o **código de acesso** usado para votar | `condominio_id` → condominios |
-| `enquetes` | Pergunta, prazo de votação e **opções embutidas** (com valor estimado) | `condominio_id` → condominios |
-| `votos` | Um documento por voto: apartamento, opção e data | `enquete_id` → enquetes; `morador_id` → moradores |
+| endereço e síndico | dentro de `condominios` | são poucos dados e sempre lidos junto com o condomínio |
+| manutenções | dentro de `equipamentos` | pertencem a um equipamento só e aparecem na ficha dele |
+| prestadores | coleção separada | a mesma empresa atende vários equipamentos e vários prédios |
+| laudos | coleção separada | o AVCB é do prédio e não de um equipamento, e a gente precisa buscar laudos por validade |
+| opções da enquete | dentro de `enquetes` | são 2 a 8 opções que não mudam depois de criadas |
+| votos | coleção separada | crescem com o número de apartamentos e precisam do índice único (explicado na seção 5) |
 
-### Embutir ou referenciar?
+Um exemplo de equipamento (um elevador):
 
-| Dado | Decisão | Motivo |
-|---|---|---|
-| Endereço e síndico | **Embutido** em `condominios` | Sempre lidos junto com o condomínio |
-| Manutenções | **Embutidas** em `equipamentos` | Pertencem a um único equipamento e são lidas na ficha dele; o volume por equipamento é pequeno |
-| Prestadores | **Referenciados** (`prestador_id`) | A mesma empresa atende vários equipamentos e condomínios; os dados dela mudam (telefone, contato) |
-| Laudos | **Coleção própria** | São consultados por validade em todos os condomínios (alertas) e alguns não pertencem a um equipamento (AVCB do prédio) |
-| Opções da enquete | **Embutidas** em `enquetes` | São poucas, fixas e sempre exibidas junto com a pergunta |
-| Votos | **Coleção própria** (não embutidos na enquete) | Crescem com o número de apartamentos, chegam ao mesmo tempo e precisam de um **índice único** `(enquete_id, bloco, unidade)` que garante 1 voto por apartamento direto no banco |
-
-### Exemplos de documentos
-Mesma coleção `equipamentos`, campos diferentes:
-
-```js
+```json
 {
-  tipo: "extintor",
-  identificacao: "EXT-01",
-  local: "Garagem G1",
-  status: "operacional",
-  classe: "ABC",
-  agente: "pó químico",
-  carga_kg: 6,
-  validade_recarga: ISODate("2026-11-28"),
-  condominio_id: ObjectId("..."),
-  manutencoes: [
-    { data: ISODate("2025-11-28"), tipo: "recarga", descricao: "Recarga anual",
-      custo: 120, prestador_id: ObjectId("...") }
+  "condominio_id": "ObjectId(...)",
+  "tipo": "elevador",
+  "identificacao": "ELV-A-SOCIAL",
+  "local": "Bloco A",
+  "status": "operacional",
+  "art": "SP-2026-0451",
+  "capacidade_pessoas": 8,
+  "paradas": 12,
+  "empresa_responsavel_id": "ObjectId(...)",
+  "proxima_manutencao": "2026-11-24",
+  "manutencoes": [
+    { "data": "2026-10-16", "tipo": "preventiva", "descricao": "Manutenção mensal", "custo": 850 },
+    { "data": "2026-10-25", "tipo": "corretiva", "descricao": "Troca do sensor da porta do 7º andar", "custo": 1320 }
   ]
 }
 ```
 
-```js
-{
-  tipo: "elevador",
-  identificacao: "ELV-A-SOCIAL",
-  local: "Bloco A",
-  status: "operacional",
-  art: "SP-2026-0451",
-  capacidade_pessoas: 8,
-  paradas: 12,
-  empresa_responsavel_id: ObjectId("..."),
-  condominio_id: ObjectId("..."),
-  manutencoes: [
-    { data: ISODate("2026-10-25"), tipo: "corretiva",
-      descricao: "Troca do sensor da porta do 7º andar", custo: 1320,
-      pecas: ["sensor de porta"], prestador_id: ObjectId("...") }
-  ]
-}
-```
-
----
+Os dados de exemplo são inventados: 2 condomínios, 3 empresas de manutenção, 9 equipamentos, 5 laudos, 22 moradores, 3 enquetes e 28 votos. As datas são calculadas a partir do dia em que o script roda, então sempre tem algo vencido e alguma enquete aberta para mostrar.
 
 ## 3. Estrutura do repositório
 
 ```
 zelo/
-├── README.md            ← descrição do sistema e modelo de dados
-├── requirements.txt     ← bibliotecas: pymongo, fastapi, uvicorn, streamlit, requests
-├── conexao.py           ← conexão com o MongoDB Atlas (sem senha no código)
-├── criar_banco.py       ← cria o banco, as 7 coleções (com validação), os índices e os documentos de exemplo
-├── consultas.py         ← consultas básicas: filtros, alertas, agregações simples, update e validação
-├── funcionalidades.py   ← as 2 funcionalidades (pipelines) + regras da enquete
-├── api.py               ← backend (FastAPI): rotas para as funcionalidades e para votar
-└── app.py               ← tela (Streamlit): enquetes, vencimentos, gastos e criação de enquete
+├── README.md
+├── requirements.txt
+├── .env.example            modelo do .env (onde vai a connection string)
+├── .gitignore              não deixa o .env subir pro GitHub
+├── database/
+│   ├── conexao.py          conecta no Atlas lendo o .env
+│   ├── criar_banco.py      cria as coleções, validações, índices e dados de exemplo
+│   ├── consultas.py        consultas básicas (primeira entrega)
+│   └── funcionalidades.py  os pipelines das 2 funcionalidades e as regras da enquete
+├── api/
+│   └── main.py             API com FastAPI
+├── frontend/
+│   └── app.py              tela com Streamlit
+└── prints/
 ```
 
-O `criar_banco.py` insere dados fictícios: **2 condomínios, 3 prestadores, 9 equipamentos de 6 tipos, 5 laudos, 22 moradores, 3 enquetes e 28 votos**. As datas são calculadas a partir do dia da execução, então sempre há itens vencidos, vencendo e enquetes abertas para demonstrar.
+## 4. Funcionalidades
 
----
+As duas funcionalidades estão em `database/funcionalidades.py`. A gente tentou fazer pipelines que trabalham de jeitos bem diferentes: o primeiro junta duas coleções numa lista só e trabalha com datas, e o segundo desmonta um array embutido e calcula valores.
 
-## 4. Funcionalidades (pipelines de agregação)
+### Funcionalidade 1: painel de vencimentos
 
-As duas funcionalidades usam pipelines **com estruturas bem diferentes**: a primeira **junta duas coleções** numa linha do tempo; a segunda **desmonta um array embutido** e calcula **vários relatórios numa única consulta**.
+Mostra para o síndico tudo que tem prazo (manutenção dos equipamentos e validade dos laudos) separado por urgência: vencido, vence nesta semana, vence neste mês e em dia.
 
-### Funcionalidade 1 — Painel de vencimentos
-**Pergunta que responde:** "o que o síndico precisa resolver, e com que urgência?"
-Junta os prazos dos **equipamentos** (próxima manutenção/recarga) com a validade dos **laudos**, calcula quantos dias faltam e agrupa por urgência: *Vencido*, *Vence nesta semana*, *Vence neste mês* e *Em dia*.
+1. `$match` pega os equipamentos do condomínio
+2. `$project` deixa só os campos que importam e renomeia para um formato comum (item, detalhe, prazo)
+3. `$unionWith` traz os laudos da outra coleção no mesmo formato, para ficar tudo numa lista só
+4. `$addFields` com `$dateDiff` calcula quantos dias faltam (negativo quer dizer que já venceu)
+5. `$addFields` com `$switch` classifica a urgência pelos dias que faltam
+6. `$sort` e `$group` agrupam por urgência, com os itens em ordem de prazo
 
-| Etapa | O que faz |
-|---|---|
-| `$match` | Filtra os equipamentos do condomínio |
-| `$project` | Padroniza os campos: origem, item, detalhe, prazo |
-| **`$unionWith`** | **Traz os laudos** (outra coleção) para o mesmo resultado, com os mesmos campos |
-| **`$dateDiff`** | Calcula os dias restantes até o prazo (negativo = vencido) |
-| **`$switch`** | Classifica a urgência a partir dos dias restantes |
-| `$sort` + `$group` + `$push` | Agrupa por urgência, com os itens em ordem de prazo |
+![Painel de vencimentos](prints/vencimentos.jpg)
 
-### Funcionalidade 2 — Relatório de gastos com manutenção
-**Pergunta que responde:** "para onde foi o dinheiro da manutenção?"
-Abre o histórico de manutenções embutido em cada equipamento e devolve, de uma vez, o resumo geral e os gastos por mês, por prestador, por tipo de serviço e os 3 equipamentos que mais custaram.
+### Funcionalidade 2: relatório de gastos
 
-| Etapa | O que faz |
-|---|---|
-| `$match` | Filtra os equipamentos do condomínio |
-| **`$unwind`** | Transforma **cada manutenção do array** em um documento separado |
-| `$match` | Mantém só o período escolhido (ex.: últimos 12 meses) |
-| **`$lookup`** | Busca o **nome do prestador** na coleção `prestadores` |
-| `$project` + **`$dateToString`** | Monta o mês (`2026-11`) e trata manutenções sem prestador |
-| **`$facet`** | Roda **5 sub-pipelines em paralelo**: resumo, por mês, por prestador, por tipo de serviço e top 3 equipamentos |
+Mostra quanto foi gasto com manutenção no período escolhido (12 meses por padrão): total, por mês, por empresa, por tipo de serviço e os 3 equipamentos que mais custaram.
 
-### Diferença entre os dois pipelines
+1. `$match` pega os equipamentos do condomínio
+2. `$unwind` no array `manutencoes`, assim cada manutenção vira um documento
+3. `$match` deixa só as manutenções do período
+4. `$lookup` busca o nome da empresa na coleção `prestadores`
+5. `$project` com `$dateToString` transforma a data em mês (`2026-11`)
+6. `$facet` faz os 5 resumos de uma vez, cada um com seu `$group` e `$sort`
+
+A gente usou o `$facet` para a tela não precisar fazer 5 consultas separadas.
+
+![Relatório de gastos](prints/gastos.jpg)
 
 | | Painel de vencimentos | Relatório de gastos |
 |---|---|---|
-| Como combina dados | `$unionWith`: **soma linhas** de 2 coleções | `$lookup`: **completa cada linha** com dados de outra coleção |
-| Trata arrays embutidos? | Não | Sim, `$unwind` em `manutencoes` |
-| Cálculo principal | Datas: `$dateDiff` + `$switch` | Valores: `$sum`, `$avg`, `$max` |
-| Formato da saída | Uma lista por urgência | Um documento com 5 relatórios (`$facet`) |
+| como junta dados | `$unionWith` (soma linhas de outra coleção) | `$lookup` (completa cada linha com dado de outra coleção) |
+| usa o array embutido | não | sim, `$unwind` em `manutencoes` |
+| o que calcula | dias até o prazo | soma, média e maior valor |
+| resultado | um grupo por urgência | um documento com 5 relatórios |
 
----
+## 5. Enquete de compras
 
-## 5. Enquete de compras para os moradores
+Essa parte foi uma ideia nossa a mais. O síndico cria uma pergunta, por exemplo "O que comprar para a área de lazer?", com as opções e o valor de cada uma. Cada apartamento recebe um código (tipo `ACA-B203`) e vota pela tela.
 
-O síndico cria uma enquete (por exemplo, "O que comprar para a área de lazer?") com as opções e o valor estimado de cada uma. Cada apartamento vota usando o **código de acesso** que recebe do síndico (ex.: `ACA-A101`), e todos acompanham o resultado.
+A regra mais importante é que cada apartamento só pode votar uma vez. Isso não ficou só no código: a coleção `votos` tem um índice único em `(enquete_id, bloco, unidade)`, então se o mesmo apartamento tentar votar de novo o próprio MongoDB recusa. A gente usou bloco e unidade em vez do morador porque quem vota é o apartamento, e se o morador mudar o voto continua sendo daquele apartamento.
 
-**Regras garantidas pelo sistema:**
-- só vota quem tem um código de acesso válido **do mesmo condomínio** da enquete;
-- só é possível votar enquanto a enquete está **aberta** (entre a abertura e o encerramento);
-- **1 voto por apartamento**: garantido pelo **índice único** `(enquete_id, bloco, unidade)` na coleção `votos`. Se o apartamento tentar votar de novo, o próprio MongoDB recusa;
-- o resultado mostra só os totais, nunca em quem cada apartamento votou.
+O resto das regras fica na função `votar()`: o código precisa existir, ser do mesmo condomínio da enquete, a enquete precisa estar aberta e a opção precisa existir.
 
-**Pipeline do resultado:** `$match` → `$unwind` das opções → `$lookup` com **sub-pipeline** (`let` + `$expr` + `$count`) para contar os votos de cada opção, inclusive as que ainda não têm voto → **`$setWindowFields`** para calcular o total geral e a colocação (`$rank`) sem perder as linhas → percentual de cada opção.
+O resultado sai de um terceiro pipeline: `$unwind` nas opções, `$lookup` com sub-pipeline para contar os votos de cada opção (assim opção sem voto aparece com 0) e `$setWindowFields` para calcular o total e a colocação sem perder as linhas. A tela mostra só os totais, ninguém vê em quem cada apartamento votou.
 
----
+![Enquete](prints/enquetes.jpg)
 
-## 6. Como executar
+### Limitações
 
-### 6.1 Preparar o MongoDB Atlas (online)
-1. Crie uma conta gratuita em <https://www.mongodb.com/cloud/atlas> e crie um **cluster gratuito (M0)**.
-2. Em **Database Access**, crie um usuário e uma senha para o banco.
-3. Em **Network Access**, libere o seu IP (para o trabalho, pode liberar `0.0.0.0/0`).
-4. No cluster, clique em **Connect → Drivers → Python** e copie a string de conexão (`mongodb+srv://usuario:<password>@...`), trocando `<password>` pela senha do usuário.
+- o código do apartamento funciona como uma senha simples, não tem login de verdade
+- qualquer um que abrir a tela consegue criar enquete, não separamos o acesso do síndico
+- a conferência de que a opção existe na enquete é feita no Python, porque o `$jsonSchema` não consegue comparar com outro documento
 
-### 6.2 Instalar e criar o banco
-Instale o [Python](https://www.python.org/downloads/) e, na pasta do repositório, rode:
+## 6. Como rodar
+
+Precisa do Python 3.10 ou mais novo e de uma conta no [MongoDB Atlas](https://www.mongodb.com/cloud/atlas/register).
+
+1. No Atlas, crie um cluster gratuito (M0), crie um usuário do banco e libere o seu IP em Network Access.
+2. Em Connect > Drivers, copie a connection string e troque `<db_password>` pela senha do usuário.
+3. No terminal, dentro da pasta do projeto:
 
 ```bash
 pip install -r requirements.txt
-python criar_banco.py          # cria o banco com os dados de exemplo
-python consultas.py            # consultas básicas
-python funcionalidades.py      # as 2 funcionalidades e o resultado da enquete, no terminal
+cp .env.example .env        # no Windows: copy .env.example .env
 ```
 
-Os scripts pedem a string de conexão ao rodar. Para não precisar colar toda vez, defina a variável de ambiente `MONGODB_URI` antes:
+4. Abra o `.env` e cole a sua connection string no `MONGODB_URI`.
+5. Crie o banco e, se quiser, veja as funcionalidades no terminal:
 
 ```bash
-# Windows (PowerShell)
-$env:MONGODB_URI = "mongodb+srv://usuario:senha@cluster0.xxxxx.mongodb.net/"
-# Linux / macOS
-export MONGODB_URI="mongodb+srv://usuario:senha@cluster0.xxxxx.mongodb.net/"
+python database/criar_banco.py
+python database/funcionalidades.py
 ```
 
-### 6.3 Abrir o sistema (API + tela)
-Em um terminal, suba a API:
+6. Para abrir a tela, rode a API num terminal e o Streamlit em outro:
 
 ```bash
-uvicorn api:app --reload
+uvicorn api.main:app --reload
 ```
-
-Em **outro terminal** (com a mesma `MONGODB_URI`), abra a tela:
 
 ```bash
-streamlit run app.py
+streamlit run frontend/app.py
 ```
 
-A tela abre no navegador com 4 abas: **Enquetes de compras** (o morador vota), **Vencimentos** (funcionalidade 1), **Gastos com manutenção** (funcionalidade 2) e **Nova enquete** (o síndico cria). Para testar o voto, use um código de exemplo, como `ACA-B203` (Residencial Jardim das Acácias) ou `MAZ-31` (Edifício Monte Azul).
+Para testar o voto dá para usar o código `ACA-B203` (Residencial Jardim das Acácias) ou `MAZ-31` (Edifício Monte Azul). As rotas da API podem ser testadas em http://localhost:8000/docs.
 
-A API também tem uma página de testes automática em <http://localhost:8000/docs>.
-
-| Rota | O que faz |
-|---|---|
-| `GET /condominios` | Lista os condomínios |
-| `GET /condominios/{id}/vencimentos` | Funcionalidade 1 |
-| `GET /condominios/{id}/gastos?meses=12` | Funcionalidade 2 |
-| `GET /condominios/{id}/enquetes` | Lista as enquetes e a situação de cada uma |
-| `POST /condominios/{id}/enquetes` | Síndico cria uma enquete |
-| `POST /enquetes/{id}/votos` | Morador vota (`codigo_acesso` + `opcao`) |
-| `GET /enquetes/{id}/resultado` | Resultado da enquete |
-
-> **Nunca coloque a senha no código nem no GitHub.** Por isso a conexão fica na variável `MONGODB_URI`.
-> O `criar_banco.py` apaga e recria **somente** o banco `zelo`, então pode ser executado várias vezes.
+O `criar_banco.py` apaga o banco `zelo` e cria de novo, então pode rodar várias vezes.
