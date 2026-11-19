@@ -1,15 +1,6 @@
-"""Zelo — Inventário e Manutenção Predial para Condomínios
-
-Cria no MongoDB Atlas o banco "zelo", as coleções (com validação),
-os índices e insere documentos de exemplo.
-
-Como rodar:
-    pip install -r requirements.txt
-    python criar_banco.py
-
-ATENÇÃO: apaga e recria APENAS o banco "zelo", para que possa ser
-executado várias vezes sem duplicar dados.
-"""
+# Cria o banco "zelo" no Atlas: coleções, regras de validação, índices e dados de exemplo.
+# Rodar da pasta do projeto:  python database/criar_banco.py
+# Obs: ele apaga o banco zelo antes de criar de novo, então pode rodar quantas vezes quiser.
 from datetime import datetime, timedelta, timezone
 
 from bson import ObjectId
@@ -18,19 +9,16 @@ from pymongo import ASCENDING
 from conexao import conectar
 
 
+# as datas dos exemplos são contadas a partir de hoje (dias(-5) = 5 dias atrás),
+# assim sempre tem coisa vencida e vencendo pra mostrar, não importa o dia que rodar
 def dias(n):
-    """Data a n dias de hoje (negativo = passado). Assim os alertas de
-    vencimento sempre têm exemplos, em qualquer dia que o script rodar."""
-    # datas em UTC "sem fuso" (padrão do pymongo, que as grava como UTC)
     hoje = datetime.now(timezone.utc).replace(tzinfo=None, hour=0, minute=0, second=0, microsecond=0)
     return hoje + timedelta(days=n)
 
 
-# ---------------------------------------------------------------------
-# 1. REGRAS DE VALIDAÇÃO ($jsonSchema)
-#    Exigem só os campos comuns. Campos extras são aceitos, e é isso que
-#    permite cada tipo de equipamento ter atributos próprios.
-# ---------------------------------------------------------------------
+# Regras de validação ($jsonSchema) de cada coleção.
+# Só os campos comuns são obrigatórios, o resto é livre. É isso que deixa
+# cada tipo de equipamento ter os seus próprios campos.
 VALIDACAO = {
     "condominios": {
         "bsonType": "object",
@@ -67,8 +55,7 @@ VALIDACAO = {
             "servicos": {"bsonType": "array", "minItems": 1, "items": {"bsonType": "string"}},
         },
     },
-    # Regras extras para os tipos com campos obrigatórios por norma.
-    # Os demais tipos (bomba, portão, gerador...) ficam livres.
+    # extintor e elevador têm campos que a norma exige, os outros tipos ficam livres
     "equipamentos": {
         "bsonType": "object",
         "required": ["condominio_id", "tipo", "identificacao", "local", "status", "manutencoes"],
@@ -116,7 +103,7 @@ VALIDACAO = {
             "arquivo_url": {"bsonType": "string"},
         },
     },
-    # ----- Enquetes de compras -----
+    # coleções da enquete
     "moradores": {
         "bsonType": "object",
         "required": ["condominio_id", "nome", "bloco", "unidade", "codigo_acesso"],
@@ -168,9 +155,7 @@ VALIDACAO = {
     },
 }
 
-# ---------------------------------------------------------------------
-# 2. ÍNDICES (para as consultas mais frequentes do sistema)
-# ---------------------------------------------------------------------
+# Índices das buscas mais usadas
 INDICES = {
     "condominios": [([("cnpj", ASCENDING)], {"unique": True})],
     "prestadores": [([("servicos", ASCENDING)], {})],
@@ -184,15 +169,12 @@ INDICES = {
     ],
     "moradores": [([("codigo_acesso", ASCENDING)], {"unique": True})],
     "enquetes": [([("condominio_id", ASCENDING), ("encerramento", ASCENDING)], {})],
-    # Índice ÚNICO: garante 1 voto por apartamento em cada enquete.
-    # Se o mesmo apartamento tentar votar de novo, o próprio MongoDB recusa.
+    # índice único: cada apartamento só vota uma vez por enquete (o próprio banco recusa o segundo voto)
     "votos": [([("enquete_id", ASCENDING), ("bloco", ASCENDING), ("unidade", ASCENDING)], {"unique": True})],
 }
 
 
-# ---------------------------------------------------------------------
-# 3. DOCUMENTOS DE EXEMPLO (dados fictícios)
-# ---------------------------------------------------------------------
+# Dados de exemplo (tudo inventado)
 def documentos_exemplo():
     acacias, monte_azul = ObjectId(), ObjectId()
     elevar, fogo_zero, hidro = ObjectId(), ObjectId(), ObjectId()
@@ -232,7 +214,7 @@ def documentos_exemplo():
     ]
 
     equipamentos = [
-        # ----- Residencial Jardim das Acácias -----
+        # Residencial Jardim das Acácias
         {
             "condominio_id": acacias, "tipo": "extintor", "identificacao": "EXT-01",
             "local": "Garagem G1", "status": "operacional",
@@ -245,9 +227,9 @@ def documentos_exemplo():
         },
         {
             "condominio_id": acacias, "tipo": "extintor", "identificacao": "EXT-02",
-            "local": "Casa de máquinas — Bloco A", "status": "operacional",
+            "local": "Casa de máquinas do bloco A", "status": "operacional",
             "classe": "BC", "agente": "CO2", "carga_kg": 6,
-            "validade_recarga": dias(-5),  # já vencido: deve aparecer nos alertas
+            "validade_recarga": dias(-5),  # vencido de propósito, pra aparecer no painel
             "proxima_manutencao": dias(-5),
             "manutencoes": [
                 {"data": dias(-370), "tipo": "recarga", "descricao": "Recarga anual",
@@ -276,7 +258,7 @@ def documentos_exemplo():
             "funcao": "recalque", "potencia_cv": 3, "vazao_m3h": 12,
             "proxima_manutencao": dias(3),
             "manutencoes": [
-                {"data": dias(-2), "tipo": "corretiva", "descricao": "Ruído excessivo — rolamento em análise",
+                {"data": dias(-2), "tipo": "corretiva", "descricao": "Barulho alto, rolamento em análise",
                  "custo": 480, "prestador_id": hidro},
             ],
         },
@@ -296,7 +278,7 @@ def documentos_exemplo():
                 {"data": dias(-140), "tipo": "preventiva", "descricao": "Troca de óleo e filtros", "custo": 1100},
             ],
         },
-        # ----- Edifício Monte Azul -----
+        # Edifício Monte Azul
         {
             "_id": elev_monte_azul,
             "condominio_id": monte_azul, "tipo": "elevador", "identificacao": "ELV-01",
@@ -336,7 +318,7 @@ def documentos_exemplo():
          "emissor": "Corpo de Bombeiros", "data_emissao": dias(-1075), "validade": dias(20),
          "arquivo_url": "https://exemplo.com/laudos/avcb-acacias.pdf"},
         {"condominio_id": acacias, "tipo": "SPDA (para-raios)", "numero": "SPDA-2025-0102",
-         "emissor": "Eng. Paula Reis — CREA 123456", "data_emissao": dias(-375), "validade": dias(-10)},
+         "emissor": "Eng. Paula Reis (CREA 123456)", "data_emissao": dias(-375), "validade": dias(-10)},
         {"condominio_id": acacias, "equipamento_id": elev_social_a, "tipo": "Inspeção anual de elevador",
          "numero": "RIA-2026-0451", "emissor": "Elevar Manutenção de Elevadores",
          "data_emissao": dias(-200), "validade": dias(165)},
@@ -346,8 +328,7 @@ def documentos_exemplo():
          "emissor": "Laboratório AquaTeste", "data_emissao": dias(-165), "validade": dias(15)},
     ]
 
-    # ----- Moradores (1 por apartamento) -----
-    # O código de acesso é entregue pelo síndico a cada apartamento e é usado para votar.
+    # moradores: um por apartamento. O código de acesso é o que o síndico entrega pra cada apartamento votar
     nomes = ["Ana Ribeiro", "Bruno Costa", "Carla Nunes", "Diego Alves", "Elisa Rocha", "Fábio Lima",
              "Gabriela Melo", "Henrique Dias", "Isabela Torres", "João Pires", "Karina Lopes", "Lucas Freitas",
              "Mariana Gomes", "Nicolas Prado", "Olívia Santos", "Paulo Teixeira", "Rafaela Cunha",
@@ -365,7 +346,7 @@ def documentos_exemplo():
                           "bloco": bloco, "unidade": unidade, "codigo_acesso": f"MAZ-{unidade}",
                           "perfil": "proprietario"})
 
-    # ----- Enquetes de compras -----
+    # enquetes
     enq_lazer, enq_cameras, enq_interfone = ObjectId(), ObjectId(), ObjectId()
     enquetes = [
         {
@@ -402,7 +383,7 @@ def documentos_exemplo():
         },
     ]
 
-    # ----- Votos já registrados -----
+    # votos que já foram feitos
     def votos_de(enquete_id, condominio_id, escolhas, dia_do_voto):
         lista = [m for m in moradores if m["condominio_id"] == condominio_id]
         return [
@@ -412,11 +393,11 @@ def documentos_exemplo():
         ]
 
     votos = (
-        # Área de lazer: 11 dos 16 apartamentos já votaram (enquete aberta)
+        # área de lazer: 11 dos 16 apartamentos votaram (ainda aberta)
         votos_de(enq_lazer, acacias, list("AABACBADBCA"), -2)
-        # Câmeras: 13 dos 16 votaram (enquete encerrada)
+        # câmeras: 13 dos 16 votaram (já encerrada)
         + votos_de(enq_cameras, acacias, list("AABAAABABAAAB"), -45)
-        # Interfone: 4 dos 6 votaram (enquete aberta)
+        # interfone: 4 dos 6 votaram (ainda aberta)
         + votos_de(enq_interfone, monte_azul, list("AABA"), -1)
     )
 
