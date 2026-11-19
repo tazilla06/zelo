@@ -1,8 +1,5 @@
-"""Zelo — consultas de exemplo no MongoDB Atlas.
-
-Rode depois do criar_banco.py:
-    python consultas.py
-"""
+# Consultas básicas da primeira entrega (filtros, agregações simples, update e validação).
+# Rodar depois do criar_banco.py:  python database/consultas.py
 from datetime import datetime, timedelta, timezone
 from pprint import pprint
 
@@ -12,21 +9,21 @@ from conexao import conectar
 
 
 def reais(valor):
-    """Formata no padrão brasileiro: 3020 -> 'R$ 3.020,00'."""
+    # 3020 -> R$ 3.020,00
     return "R$ " + f"{valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
 
 def titulo(texto):
-    print(f"\n=== {texto} ===")
+    print(f"\n--- {texto} ---")
 
 
 def main():
     db = conectar()
-    hoje = datetime.now(timezone.utc).replace(tzinfo=None)  # UTC, como o pymongo grava
+    hoje = datetime.now(timezone.utc).replace(tzinfo=None)  # o pymongo grava em UTC
     em_30_dias = hoje + timedelta(days=30)
     acacias = db.condominios.find_one({"nome": "Residencial Jardim das Acácias"})
 
-    # 1. Filtro por tipo: todos os elevadores do condomínio
+    # filtro simples por tipo
     titulo("1. Elevadores do Residencial Jardim das Acácias")
     for e in db.equipamentos.find(
         {"condominio_id": acacias["_id"], "tipo": "elevador"},
@@ -34,7 +31,7 @@ def main():
     ):
         pprint(e)
 
-    # 2. Campo que só existe em um tipo: extintores com recarga vencida ou vencendo
+    # validade_recarga só existe nos extintores
     titulo("2. Extintores com recarga vencida ou vencendo em 30 dias")
     for e in db.equipamentos.find(
         {"tipo": "extintor", "validade_recarga": {"$lte": em_30_dias}},
@@ -43,7 +40,7 @@ def main():
         print(f"  {e['identificacao']:8} {e['local']:30} classe {e['classe']:4} "
               f"recarga até {e['validade_recarga']:%d/%m/%Y}")
 
-    # 3. Alertas: laudos vencidos ou vencendo em 30 dias, com o nome do condomínio
+    # laudos vencidos ou perto de vencer, com o nome do condomínio
     titulo("3. Laudos vencidos ou vencendo em 30 dias")
     for l in db.laudos.aggregate([
         {"$match": {"validade": {"$lte": em_30_dias}}},
@@ -58,7 +55,7 @@ def main():
     ]):
         print(f"  {l['situacao']:15} {l['validade']:%d/%m/%Y}  {l['tipo']:20} {l['condominio']}")
 
-    # 4. Agregação no histórico embutido: custo total de manutenção por equipamento
+    # soma das manutenções de cada equipamento (array embutido)
     titulo("4. Custo total de manutenção por equipamento")
     for c in db.equipamentos.aggregate([
         {"$unwind": "$manutencoes"},
@@ -70,9 +67,9 @@ def main():
         {"$sort": {"total_gasto": -1}},
     ]):
         print(f"  {reais(c['total_gasto']):>11}  ({c['qtd_manutencoes']}x)  "
-              f"{c['_id']['identificacao']} — {c['_id']['local']}")
+              f"{c['_id']['identificacao']} - {c['_id']['local']}")
 
-    # 5. Custo por condomínio e por tipo de equipamento
+    # gasto por condomínio e por tipo de equipamento
     titulo("5. Custo por condomínio e tipo de equipamento")
     for c in db.equipamentos.aggregate([
         {"$unwind": "$manutencoes"},
@@ -86,7 +83,7 @@ def main():
     ]):
         print(f"  {c['condominio']:32} {c['tipo']:13} {reais(c['total']):>11}")
 
-    # 6. Registrar uma nova manutenção (adiciona no array embutido)
+    # registra uma manutenção nova na bomba ($push no array) e muda o status
     titulo("6. Registrar manutenção na bomba e voltar o status para operacional")
     resultado = db.equipamentos.update_one(
         {"condominio_id": acacias["_id"], "identificacao": "BMB-RECALQUE-01"},
@@ -102,8 +99,8 @@ def main():
         {"_id": 0, "identificacao": 1, "status": 1, "manutencoes": 1},
     ))
 
-    # 7. A validação do banco recusa documentos incompletos
-    titulo("7. Tentando inserir um extintor SEM o campo 'classe'")
+    # tenta inserir um extintor sem classe pra ver a validação funcionando
+    titulo("7. Extintor sem o campo classe (tem que dar erro)")
     try:
         db.equipamentos.insert_one({
             "condominio_id": acacias["_id"], "tipo": "extintor", "identificacao": "TESTE",
