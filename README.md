@@ -30,78 +30,7 @@ Mesmo sendo flexível, a gente colocou regras de validação com `$jsonSchema`: 
 
 ## 2. Modelagem
 
-O banco se chama `zelo` e tem 7 coleções.
-
-```mermaid
-erDiagram
-    condominios ||--o{ equipamentos : "tem"
-    condominios ||--o{ laudos : "tem"
-    condominios ||--o{ moradores : "tem"
-    condominios ||--o{ enquetes : "tem"
-    prestadores ||--o{ equipamentos : "faz manutenção"
-    equipamentos |o--o{ laudos : "pode ter"
-    enquetes ||--o{ votos : "recebe"
-    moradores ||--o{ votos : "faz"
-
-    condominios {
-        ObjectId _id
-        string nome
-        string cnpj
-        object endereco
-        object sindico
-        array blocos
-    }
-    equipamentos {
-        ObjectId _id
-        ObjectId condominio_id
-        string tipo
-        string identificacao
-        string local
-        string status
-        date proxima_manutencao
-        array manutencoes "histórico embutido"
-    }
-    prestadores {
-        ObjectId _id
-        string nome
-        string cnpj
-        array servicos
-    }
-    laudos {
-        ObjectId _id
-        ObjectId condominio_id
-        ObjectId equipamento_id "opcional"
-        string tipo
-        string numero
-        date validade
-    }
-    moradores {
-        ObjectId _id
-        ObjectId condominio_id
-        string bloco
-        string unidade
-        string codigo_acesso
-    }
-    enquetes {
-        ObjectId _id
-        ObjectId condominio_id
-        string titulo
-        array opcoes "embutidas"
-        date abertura
-        date encerramento
-    }
-    votos {
-        ObjectId _id
-        ObjectId enquete_id
-        ObjectId morador_id
-        string bloco
-        string unidade
-        string opcao
-        date data
-    }
-```
-
-Os equipamentos ainda têm os campos de cada tipo (`classe`, `art`, `potencia_cv`...), que não aparecem no diagrama porque mudam de um documento para outro.
+O banco se chama `zelo` e tem 7 coleções: `condominios`, `equipamentos`, `prestadores`, `laudos`, `moradores`, `enquetes` e `votos`. As ligações entre elas são feitas pelo `_id` (por exemplo, cada equipamento guarda o `condominio_id` do prédio dele).
 
 ### O que ficou embutido e o que ficou separado
 
