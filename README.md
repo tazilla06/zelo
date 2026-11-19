@@ -81,9 +81,8 @@ zelo/
 │   └── funcionalidades.py  os pipelines das 2 funcionalidades e as regras da enquete
 ├── api/
 │   └── main.py             API com FastAPI
-├── frontend/
-│   └── app.py              tela com Streamlit
-└── prints/
+└── frontend/
+    └── app.py              tela com Streamlit
 ```
 
 ## 4. Funcionalidades
@@ -101,8 +100,6 @@ Mostra para o síndico tudo que tem prazo (manutenção dos equipamentos e valid
 5. `$addFields` com `$switch` classifica a urgência pelos dias que faltam
 6. `$sort` e `$group` agrupam por urgência, com os itens em ordem de prazo
 
-![Painel de vencimentos](prints/vencimentos.jpg)
-
 ### Funcionalidade 2: relatório de gastos
 
 Mostra quanto foi gasto com manutenção no período escolhido (12 meses por padrão): total, por mês, por empresa, por tipo de serviço e os 3 equipamentos que mais custaram.
@@ -115,8 +112,6 @@ Mostra quanto foi gasto com manutenção no período escolhido (12 meses por pad
 6. `$facet` faz os 5 resumos de uma vez, cada um com seu `$group` e `$sort`
 
 A gente usou o `$facet` para a tela não precisar fazer 5 consultas separadas.
-
-![Relatório de gastos](prints/gastos.jpg)
 
 | | Painel de vencimentos | Relatório de gastos |
 |---|---|---|
@@ -134,8 +129,6 @@ A regra mais importante é que cada apartamento só pode votar uma vez. Isso nã
 O resto das regras fica na função `votar()`: o código precisa existir, ser do mesmo condomínio da enquete, a enquete precisa estar aberta e a opção precisa existir.
 
 O resultado sai de um terceiro pipeline: `$unwind` nas opções, `$lookup` com sub-pipeline para contar os votos de cada opção (assim opção sem voto aparece com 0) e `$setWindowFields` para calcular o total e a colocação sem perder as linhas. A tela mostra só os totais, ninguém vê em quem cada apartamento votou.
-
-![Enquete](prints/enquetes.jpg)
 
 ### Limitações
 
