@@ -1,5 +1,6 @@
 pymongo
 python-dotenv
+redis
 fastapi
 uvicorn
 streamlit
