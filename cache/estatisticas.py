@@ -55,16 +55,18 @@ def email_pode_existir(r, email):
 def registrar_acesso(r, rota, visitante, dia=None):
     dia = dia or date.today()
     chave = hll_visitantes(dia)
-    r.pfadd(chave, visitante)
-    r.expire(chave, GUARDAR_POR)
+    # pipeline: manda os 5 comandos juntos, numa ida só até o Redis
+    pipe = r.pipeline(transaction=False)
+    pipe.pfadd(chave, visitante)
+    pipe.expire(chave, GUARDAR_POR)
+    pipe.execute_command("CMS.INCRBY", CMS_ROTAS, rota, 1)
+    pipe.sadd(ROTAS_VISTAS, rota)
+    pipe.incr("total_requisicoes")
+    resultados = pipe.execute(raise_on_error=False)
 
-    try:
-        r.cms().incrby(CMS_ROTAS, [rota], [1])
-    except redis.ResponseError:  # o CMS ainda não existe
+    if isinstance(resultados[2], redis.ResponseError):  # o CMS ainda não existia
         r.cms().initbydim(CMS_ROTAS, 2000, 5)
         r.cms().incrby(CMS_ROTAS, [rota], [1])
-    r.sadd(ROTAS_VISTAS, rota)
-    r.incr("total_requisicoes")
 
 
 def registrar_login(r, sindico_id, dia=None):
