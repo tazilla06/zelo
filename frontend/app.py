@@ -21,14 +21,29 @@ def data_br(texto):
     return datetime.fromisoformat(texto).strftime("%d/%m/%Y")
 
 
+def cabecalho():
+    # depois do login, toda chamada leva o token do síndico
+    sessao = st.session_state.get("sessao")
+    return {"Authorization": f"Bearer {sessao['token']}"} if sessao else {}
+
+
+def sessao_expirou(resposta):
+    if resposta.status_code == 401 and st.session_state.get("sessao"):
+        st.session_state.sessao = None
+        st.warning("Sua sessão expirou, entre de novo.")
+        st.stop()
+
+
 def api_get(caminho, **params):
-    resposta = requests.get(API_URL + caminho, params=params, timeout=15)
+    resposta = requests.get(API_URL + caminho, params=params, headers=cabecalho(), timeout=15)
+    sessao_expirou(resposta)
     resposta.raise_for_status()
     return resposta.json()
 
 
 def api_post(caminho, dados):
-    resposta = requests.post(API_URL + caminho, json=dados, timeout=15)
+    resposta = requests.post(API_URL + caminho, json=dados, headers=cabecalho(), timeout=15)
+    sessao_expirou(resposta)
     corpo = resposta.json()
     if resposta.ok:
         return True, corpo
@@ -51,8 +66,34 @@ nomes = {c["nome"]: c["_id"] for c in condominios}
 escolhido = st.sidebar.selectbox("Condomínio", list(nomes))
 cid = nomes[escolhido]
 
-aba_enquetes, aba_vencimentos, aba_gastos, aba_nova = st.tabs(
-    ["Enquetes", "Vencimentos", "Gastos", "Nova enquete (síndico)"]
+# Login do síndico (a sessão fica no Redis, aqui só guardamos o token)
+st.session_state.setdefault("sessao", None)
+with st.sidebar:
+    st.divider()
+    st.subheader("Área do síndico")
+    if st.session_state.sessao:
+        st.write(f"Entrou como **{st.session_state.sessao['nome']}**")
+        if st.button("Sair"):
+            api_post("/logout", {})
+            st.session_state.sessao = None
+            st.rerun()
+    else:
+        with st.form("login"):
+            email = st.text_input("E-mail")
+            senha = st.text_input("Senha", type="password")
+            if st.form_submit_button("Entrar"):
+                ok, retorno = api_post("/login", {"email": email, "senha": senha})
+                if ok:
+                    st.session_state.sessao = retorno
+                    st.rerun()
+                else:
+                    st.error(retorno)
+
+sessao = st.session_state.sessao
+sindico_daqui = bool(sessao) and sessao["condominio_id"] == cid
+
+aba_enquetes, aba_vencimentos, aba_gastos, aba_nova, aba_estat = st.tabs(
+    ["Enquetes", "Vencimentos", "Gastos", "Nova enquete (síndico)", "Estatísticas (síndico)"]
 )
 
 # Enquetes: o morador vota com o código do apartamento
@@ -146,31 +187,62 @@ with aba_gastos:
             linhas = [{"": l["_id"], "Total": reais(l["total"])} for l in rel.get(chave, [])]
             st.dataframe(pd.DataFrame(linhas), hide_index=True, width="stretch")
 
-# Síndico cria uma enquete nova
+# Síndico cria uma enquete nova (precisa estar logado e ser síndico deste condomínio)
 with aba_nova:
-    qtd = st.number_input("Quantas opções?", min_value=2, max_value=8, value=3)
-    with st.form("nova_enquete", clear_on_submit=True):
-        titulo = st.text_input("Pergunta", placeholder="Ex: Qual aparelho comprar para a academia?")
-        descricao = st.text_area("Explicação (opcional)")
-        opcoes = []
-        for i in range(int(qtd)):
-            c1, c2 = st.columns([3, 1])
-            desc = c1.text_input(f"Opção {chr(65 + i)}", key=f"op_{i}")
-            valor = c2.number_input("Valor estimado (R$)", min_value=0.0, step=100.0, key=f"val_{i}")
-            opcoes.append({"descricao": desc, "valor_estimado": valor})
-        dias = st.number_input("Dias de votação", min_value=1, max_value=60, value=7)
-        autor = st.text_input("Criada por", value="Síndico")
+    if not sessao:
+        st.info("Só o síndico cria enquete. Entre com o seu e-mail e senha na barra lateral.")
+    elif not sindico_daqui:
+        st.warning("Você é síndico de outro condomínio. Troque o condomínio na barra lateral.")
+    else:
+        qtd = st.number_input("Quantas opções?", min_value=2, max_value=8, value=3)
+        with st.form("nova_enquete", clear_on_submit=True):
+            titulo = st.text_input("Pergunta", placeholder="Ex: Qual aparelho comprar para a academia?")
+            descricao = st.text_area("Explicação (opcional)")
+            opcoes = []
+            for i in range(int(qtd)):
+                c1, c2 = st.columns([3, 1])
+                desc = c1.text_input(f"Opção {chr(65 + i)}", key=f"op_{i}")
+                valor = c2.number_input("Valor estimado (R$)", min_value=0.0, step=100.0, key=f"val_{i}")
+                opcoes.append({"descricao": desc, "valor_estimado": valor})
+            dias = st.number_input("Dias de votação", min_value=1, max_value=60, value=7)
 
-        if st.form_submit_button("Criar enquete"):
-            preenchidas = [o for o in opcoes if o["descricao"].strip()]
-            ok, retorno = api_post(f"/condominios/{cid}/enquetes", {
-                "titulo": titulo,
-                "descricao": descricao,
-                "opcoes": preenchidas,
-                "dias_duracao": int(dias),
-                "criada_por": autor,
-            })
-            if ok:
-                st.success(f"Enquete criada: {retorno['titulo']}")
-            else:
-                st.error(retorno)
+            if st.form_submit_button("Criar enquete"):
+                preenchidas = [o for o in opcoes if o["descricao"].strip()]
+                ok, retorno = api_post(f"/condominios/{cid}/enquetes", {
+                    "titulo": titulo,
+                    "descricao": descricao,
+                    "opcoes": preenchidas,
+                    "dias_duracao": int(dias),
+                })
+                if ok:
+                    st.success(f"Enquete criada: {retorno['titulo']}")
+                else:
+                    st.error(retorno)
+
+# Estatísticas de uso (vêm do Redis: HyperLogLog, Count-Min Sketch e Bloom filter)
+with aba_estat:
+    if not sessao:
+        st.info("Entre como síndico na barra lateral para ver as estatísticas.")
+    else:
+        est = api_get("/estatisticas", dias=7)
+
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Visitantes diferentes (7 dias)", est["visitantes_no_periodo"])
+        c2.metric("Síndicos que entraram (7 dias)", est["sindicos_no_periodo"])
+        c3.metric("Requisições no total", est["total_requisicoes"])
+        st.caption("Os visitantes são contados com HyperLogLog, então o número é aproximado (erro de uns 0,8%).")
+
+        st.write("**Visitantes diferentes por dia**")
+        por_dia = pd.DataFrame(est["por_dia"])
+        por_dia["dia"] = por_dia["dia"].map(data_br)
+        st.bar_chart(por_dia.set_index("dia")["visitantes"])
+
+        st.write("**Telas mais usadas** (contadas com Count-Min Sketch)")
+        rotas = pd.DataFrame(est["rotas_mais_usadas"], columns=["rota", "acessos"])
+        st.dataframe(rotas.rename(columns={"rota": "Rota da API", "acessos": "Acessos"}),
+                     hide_index=True, width="stretch")
+
+        if est["bloom_emails"]:
+            b = est["bloom_emails"]
+            st.caption(f"Bloom filter de e-mails: {b['emails_no_filtro']} e-mail(s) de síndico, "
+                       f"capacidade de {b['capacidade']}.")
